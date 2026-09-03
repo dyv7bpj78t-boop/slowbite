@@ -126,6 +126,19 @@ h1 { margin: 0; font-size: clamp(2rem, 9vw, 3rem); line-height: 1; letter-spacin
 .primary-button:active, .bite-button.ready:active { transform: scale(.985); }
 .primary-button.compact { min-height: 54px; justify-content: center; margin-top: 8px; }
 
+.secondary-button {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 12px;
+  border: 1px solid rgba(255, 138, 31, .35);
+  border-radius: 15px;
+  color: var(--orange-bright);
+  background: rgba(255, 138, 31, .08);
+  font-weight: 750;
+}
+.secondary-button:active { background: rgba(255, 138, 31, .15); }
+.audio-status { min-height: 20px; margin: 8px 0 0; text-align: center; color: var(--muted); font-size: .8rem; }
+
 .text-button {
   border: 0;
   background: transparent;
