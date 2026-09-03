@@ -14,6 +14,7 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
   let session = readJSON(KEYS.session, null);
   let history = readJSON(KEYS.history, []);
   let audioContext = null;
+  let audioKeepAlive = null;
   let wakeLock = null;
   let readySignalledForBite = session?.readySignalledForBite ?? 0;
   let targetSignalled = session?.targetSignalled ?? false;
@@ -25,6 +26,7 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     settingsDialog: $("settingsDialog"), mealMinutes: $("mealMinutes"),
     biteSeconds: $("biteSeconds"), soundEnabled: $("soundEnabled"),
     saveSettingsButton: $("saveSettingsButton"), historyButton: $("historyButton"),
+    testChimeButton: $("testChimeButton"), audioStatus: $("audioStatus"),
     historyDialog: $("historyDialog"), historyList: $("historyList"),
     closeHistoryButton: $("closeHistoryButton"), clearHistoryButton: $("clearHistoryButton"),
     cancelButton: $("cancelButton"), finishButton: $("finishButton"),
@@ -50,14 +52,36 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (AudioContext) audioContext = new AudioContext();
     }
-    if (audioContext?.state === "suspended") audioContext.resume();
+    if (!audioContext) return false;
+
+    if (audioContext.state === "suspended") audioContext.resume().catch(() => {});
+
+    // iOS may suspend an otherwise-idle AudioContext before the delayed cue.
+    // Starting an inaudible graph during the user's tap unlocks the output path
+    // and keeps the context active for the duration of the meal.
+    if (!audioKeepAlive) {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.frequency.value = 1;
+      gain.gain.value = 0.00001;
+      oscillator.connect(gain).connect(audioContext.destination);
+      oscillator.start();
+      audioKeepAlive = oscillator;
+    }
+    return true;
   }
 
-  function chime(targetReached = false) {
-    if (!settings.soundEnabled || !audioContext) return;
+  function stopAudioKeepAlive() {
+    if (!audioKeepAlive) return;
+    try { audioKeepAlive.stop(); } catch { /* already stopped */ }
+    audioKeepAlive = null;
+  }
+
+  function chime(targetReached = false, delaySeconds = 0) {
+    if (!settings.soundEnabled || !audioContext || audioContext.state === "closed") return false;
     const notes = targetReached ? [523.25, 659.25] : [659.25];
     notes.forEach((frequency, index) => {
-      const start = audioContext.currentTime + index * 0.13;
+      const start = audioContext.currentTime + Math.max(0.015, delaySeconds) + index * 0.13;
       const oscillator = audioContext.createOscillator();
       const gain = audioContext.createGain();
       oscillator.type = "sine";
@@ -69,6 +93,7 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
       oscillator.start(start);
       oscillator.stop(start + 0.23);
     });
+    return true;
   }
 
   async function requestWakeLock() {
@@ -118,7 +143,8 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     const lastBite = session.bites.at(-1);
     if (lastBite && now - lastBite < session.cooldownMs) return;
     session.bites.push(now);
-    readySignalledForBite = session.bites.length - 1;
+    const scheduled = chime(false, session.cooldownMs / 1000);
+    readySignalledForBite = scheduled ? session.bites.length : session.bites.length - 1;
     persistSession();
     updateMeal(now);
   }
@@ -138,6 +164,7 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     session = null;
     persistSession();
     releaseWakeLock();
+    stopAudioKeepAlive();
     showHome();
   }
 
@@ -147,6 +174,7 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     session = null;
     persistSession();
     releaseWakeLock();
+    stopAudioKeepAlive();
     showHome();
   }
 
@@ -215,6 +243,20 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     elements.startMinutes.textContent = settings.mealMinutes;
   }
 
+  function testChime() {
+    settings.soundEnabled = elements.soundEnabled.checked;
+    elements.audioStatus.textContent = "";
+    if (!settings.soundEnabled) {
+      elements.audioStatus.textContent = "Turn on Ready sound first.";
+      return;
+    }
+    const available = initializeAudio();
+    const played = available && chime(false);
+    elements.audioStatus.textContent = played
+      ? "Chime sent. If it is silent, raise your media volume."
+      : "Audio is unavailable in this browser.";
+  }
+
   function renderHistory() {
     if (!history.length) {
       elements.historyList.innerHTML = '<p class="empty-history">No meals yet.<br>Finished meals will appear here.</p>';
@@ -244,6 +286,7 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
   elements.cancelButton.addEventListener("click", cancelMeal);
   elements.settingsButton.addEventListener("click", openSettings);
   elements.saveSettingsButton.addEventListener("click", saveSettings);
+  elements.testChimeButton.addEventListener("click", testChime);
   elements.historyButton.addEventListener("click", () => { renderHistory(); elements.historyDialog.showModal(); });
   elements.closeHistoryButton.addEventListener("click", () => elements.historyDialog.close());
   elements.clearHistoryButton.addEventListener("click", () => {
