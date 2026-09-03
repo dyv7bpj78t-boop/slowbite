@@ -1,4 +1,4 @@
-import { averageInterval, cooldownRemaining, formatClock, mealProgress } from "./logic.mjs";
+import { averageInterval, formatClock } from "./logic.mjs";
 
 (() => {
   "use strict";
@@ -10,13 +10,17 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
   };
 
   const defaults = { mealMinutes: 20, biteSeconds: 30, soundEnabled: true };
-  const CHIME_AT_SECONDS = 60;
   let settings = readJSON(KEYS.settings, defaults);
   let session = readJSON(KEYS.session, null);
   let history = readJSON(KEYS.history, []);
   let wakeLock = null;
-  let readySignalledForBite = session?.readySignalledForBite ?? 0;
-  let targetSignalled = session?.targetSignalled ?? false;
+
+  // Manual sessions from older versions cannot be resumed meaningfully now
+  // that pacing is automatic.
+  if (session && session.mode !== "automatic") {
+    session = null;
+    localStorage.removeItem(KEYS.session);
+  }
 
   const $ = (id) => document.getElementById(id);
   const elements = {
@@ -26,14 +30,14 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     biteSeconds: $("biteSeconds"), soundEnabled: $("soundEnabled"),
     saveSettingsButton: $("saveSettingsButton"), historyButton: $("historyButton"),
     testChimeButton: $("testChimeButton"), audioStatus: $("audioStatus"),
-    readyChimeAudio: $("readyChimeAudio"),
+    readyChimeAudio: $("readyChimeAudio"), pacerAudio: $("pacerAudio"),
     historyDialog: $("historyDialog"), historyList: $("historyList"),
     closeHistoryButton: $("closeHistoryButton"), clearHistoryButton: $("clearHistoryButton"),
     cancelButton: $("cancelButton"), finishButton: $("finishButton"),
     progressRing: $("progressRing"), mealTimer: $("mealTimer"), targetLabel: $("targetLabel"),
     paceLabel: $("paceLabel"), paceMessage: $("paceMessage"), biteButton: $("biteButton"),
-    biteButtonText: $("biteButtonText"), buttonCountdown: $("buttonCountdown"),
-    biteCount: $("biteCount")
+    biteIcon: $("biteIcon"), biteButtonText: $("biteButtonText"),
+    buttonCountdown: $("buttonCountdown"), countLabel: $("countLabel"), biteCount: $("biteCount")
   };
 
   function readJSON(key, fallback) {
@@ -47,23 +51,40 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     localStorage.setItem(key, JSON.stringify(value));
   }
 
-  function stopReadyChime() {
-    elements.readyChimeAudio.pause();
+  function activeElapsed(now = Date.now()) {
+    if (!session) return 0;
+    const currentPause = session.pausedAt ? now - session.pausedAt : 0;
+    return Math.max(0, now - session.startedAt - (session.totalPausedMs || 0) - currentPause);
   }
 
-  function playReadyChimeAfter(delayMs = 0) {
+  function configurePacerAudio() {
+    if (!session) return;
+    const seconds = Math.round(session.cooldownMs / 1000);
+    const source = new URL(`./pace-${seconds}.mp3`, document.baseURI).href;
+    if (elements.pacerAudio.src !== source) {
+      elements.pacerAudio.src = source;
+      elements.pacerAudio.load();
+    }
+    elements.pacerAudio.loop = true;
+  }
+
+  function playPacer(elapsedMs = 0) {
     if (!settings.soundEnabled) return null;
-    const audio = elements.readyChimeAudio;
+    configurePacerAudio();
+    const audio = elements.pacerAudio;
     try {
-      audio.pause();
-      audio.currentTime = Math.max(0, CHIME_AT_SECONDS - delayMs / 1000);
-      // This begins real media playback inside the user's tap. The MP3 is silent
-      // until its 60-second mark, so the audible cue survives delayed-playback
-      // restrictions in iOS and other browsers.
+      if (elapsedMs > 0 && audio.readyState >= 1) {
+        audio.currentTime = (elapsedMs / 1000) % (session.cooldownMs / 1000);
+      }
       return audio.play();
     } catch {
       return null;
     }
+  }
+
+  function stopAudio() {
+    elements.pacerAudio.pause();
+    elements.readyChimeAudio.pause();
   }
 
   async function requestWakeLock() {
@@ -80,108 +101,108 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
   }
 
   function persistSession() {
-    if (session) {
-      session.readySignalledForBite = readySignalledForBite;
-      session.targetSignalled = targetSignalled;
-      writeJSON(KEYS.session, session);
-    } else {
-      localStorage.removeItem(KEYS.session);
-    }
+    if (session) writeJSON(KEYS.session, session);
+    else localStorage.removeItem(KEYS.session);
+  }
+
+  function pauseAfterPlaybackFailure() {
+    if (!session || session.pausedAt) return;
+    session.pausedAt = Date.now();
+    persistSession();
+    updateMeal();
   }
 
   function startMeal() {
     const now = Date.now();
     session = {
+      mode: "automatic",
       startedAt: now,
       targetMs: settings.mealMinutes * 60_000,
       cooldownMs: settings.biteSeconds * 1000,
-      bites: []
+      totalPausedMs: 0,
+      pausedAt: null
     };
-    readySignalledForBite = 0;
-    targetSignalled = false;
     persistSession();
     showMeal();
     requestWakeLock();
     updateMeal(now);
+    playPacer(0)?.catch(pauseAfterPlaybackFailure);
   }
 
-  function takeBite() {
+  function togglePacing() {
     if (!session) return;
     const now = Date.now();
-    const lastBite = session.bites.at(-1);
-    if (lastBite && now - lastBite < session.cooldownMs) return;
-    session.bites.push(now);
-    const playback = playReadyChimeAfter(session.cooldownMs);
-    readySignalledForBite = playback ? session.bites.length : session.bites.length - 1;
-    playback?.catch(() => {
-      readySignalledForBite = Math.min(readySignalledForBite, session ? session.bites.length - 1 : 0);
+    if (session.pausedAt) {
+      session.totalPausedMs = (session.totalPausedMs || 0) + now - session.pausedAt;
+      session.pausedAt = null;
       persistSession();
-    });
-    persistSession();
-    updateMeal(now);
+      updateMeal(now);
+      requestWakeLock();
+      playPacer(activeElapsed(now))?.catch(pauseAfterPlaybackFailure);
+    } else {
+      session.pausedAt = now;
+      elements.pacerAudio.pause();
+      releaseWakeLock();
+      persistSession();
+      updateMeal(now);
+    }
   }
 
   function finishMeal() {
     if (!session) return;
     const endedAt = Date.now();
+    const durationMs = activeElapsed(endedAt);
     history.unshift({
       id: crypto.randomUUID?.() ?? String(endedAt),
+      mode: "automatic",
       startedAt: session.startedAt,
       endedAt,
+      durationMs,
       targetMs: session.targetMs,
-      bites: session.bites
+      intervalMs: session.cooldownMs,
+      cues: Math.floor(durationMs / session.cooldownMs) + 1
     });
     history = history.slice(0, 100);
     writeJSON(KEYS.history, history);
     session = null;
     persistSession();
     releaseWakeLock();
-    stopReadyChime();
+    stopAudio();
     showHome();
   }
 
   function cancelMeal() {
     if (!session) return;
-    if (session.bites.length && !window.confirm("Discard this meal?")) return;
+    if (activeElapsed() > 5000 && !window.confirm("Discard this meal?")) return;
     session = null;
     persistSession();
     releaseWakeLock();
-    stopReadyChime();
+    stopAudio();
     showHome();
   }
 
   function updateMeal(now = Date.now()) {
     if (!session) return;
-    const elapsed = Math.max(0, now - session.startedAt);
-    const progress = mealProgress(session.startedAt, now, session.targetMs);
-    const lastBite = session.bites.at(-1);
-    const remaining = lastBite ? cooldownRemaining(lastBite, now, session.cooldownMs) : 0;
-    const ready = remaining <= 0;
+    const elapsed = activeElapsed(now);
+    const progress = Math.min(elapsed / session.targetMs, 1);
+    const paused = Boolean(session.pausedAt);
+    const remaining = session.cooldownMs - (elapsed % session.cooldownMs);
+    const cueCount = Math.floor(elapsed / session.cooldownMs) + 1;
 
     elements.progressRing.style.setProperty("--progress", `${progress * 360}deg`);
     elements.mealTimer.textContent = formatClock(elapsed);
     elements.targetLabel.textContent = elapsed >= session.targetMs ? "TARGET REACHED" : `OF ${formatClock(session.targetMs)}`;
     elements.targetLabel.classList.toggle("reached", elapsed >= session.targetMs);
-    elements.paceLabel.textContent = ready ? "READY" : "WAIT";
-    elements.paceLabel.className = `eyebrow ${ready ? "status-ready" : "status-wait"}`;
-    elements.paceMessage.textContent = ready
-      ? (session.bites.length ? "Take your next bite" : "Take your first bite")
-      : `${Math.ceil(remaining / 1000)} seconds`;
-    elements.biteButton.disabled = !ready;
-    elements.biteButton.className = `bite-button ${ready ? "ready" : "waiting"}`;
-    elements.biteButtonText.textContent = session.bites.length ? "Next bite" : "First bite";
-    elements.buttonCountdown.textContent = ready ? "" : String(Math.ceil(remaining / 1000));
-    elements.biteCount.textContent = session.bites.length;
-
-    if (ready && session.bites.length > readySignalledForBite) {
-      readySignalledForBite = session.bites.length;
-      playReadyChimeAfter(0)?.catch(() => {});
-      persistSession();
-    }
-    if (elapsed >= session.targetMs && !targetSignalled) {
-      targetSignalled = true;
-      persistSession();
-    }
+    elements.paceLabel.textContent = paused ? "PAUSED" : "NEXT CHIME";
+    elements.paceLabel.className = `eyebrow ${paused ? "status-wait" : "status-ready"}`;
+    elements.paceMessage.textContent = paused ? "Pacing is paused" : `${Math.ceil(remaining / 1000)} seconds`;
+    elements.biteButton.disabled = false;
+    elements.biteButton.className = `bite-button ${paused ? "waiting" : "ready"}`;
+    elements.biteIcon.textContent = paused ? "▶" : "Ⅱ";
+    elements.biteButtonText.textContent = paused ? "Resume pacing" : "Pause pacing";
+    elements.buttonCountdown.textContent = "";
+    elements.countLabel.textContent = "Cue";
+    elements.biteCount.textContent = cueCount;
   }
 
   function showMeal() {
@@ -218,17 +239,24 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     settings.soundEnabled = elements.soundEnabled.checked;
     elements.audioStatus.textContent = "";
     if (!settings.soundEnabled) {
-      elements.audioStatus.textContent = "Turn on Ready sound first.";
+      elements.audioStatus.textContent = "Turn on Pacing sound first.";
       return;
     }
-    const playback = playReadyChimeAfter(0);
+    let playback;
+    try {
+      elements.readyChimeAudio.pause();
+      elements.readyChimeAudio.currentTime = 0;
+      playback = elements.readyChimeAudio.play();
+    } catch {
+      playback = null;
+    }
     if (!playback) {
       elements.audioStatus.textContent = "Audio is unavailable in this browser.";
       return;
     }
-    elements.audioStatus.textContent = "Playing the bundled MP3…";
+    elements.audioStatus.textContent = "Playing the meditation bell…";
     playback.then(() => {
-      elements.audioStatus.textContent = "Chime played. If it is silent, raise your media volume.";
+      elements.audioStatus.textContent = "Bell played. If it is silent, raise your media volume.";
     }).catch(() => {
       elements.audioStatus.textContent = "Playback was blocked. Tap Test chime again.";
     });
@@ -244,21 +272,24 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     elements.historyList.replaceChildren(...history.map((meal) => {
       const item = document.createElement("article");
       item.className = "history-item";
-      const average = averageInterval(meal.bites);
+      const automatic = meal.mode === "automatic";
+      const average = automatic ? meal.intervalMs : averageInterval(meal.bites || []);
+      const count = automatic ? meal.cues : (meal.bites || []).length;
+      const duration = meal.durationMs ?? (meal.endedAt - meal.startedAt);
       const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(meal.startedAt);
       item.innerHTML = `
         <p class="history-date">${date}</p>
         <div class="history-metrics">
-          <div class="history-metric"><strong>${formatClock(meal.endedAt - meal.startedAt)}</strong><span>Duration</span></div>
-          <div class="history-metric"><strong>${meal.bites.length}</strong><span>Bites</span></div>
-          <div class="history-metric"><strong>${average ? `${Math.round(average / 1000)} sec` : "—"}</strong><span>Average</span></div>
+          <div class="history-metric"><strong>${formatClock(duration)}</strong><span>Duration</span></div>
+          <div class="history-metric"><strong>${count}</strong><span>${automatic ? "Cues" : "Bites"}</span></div>
+          <div class="history-metric"><strong>${average ? `${Math.round(average / 1000)} sec` : "—"}</strong><span>${automatic ? "Interval" : "Average"}</span></div>
         </div>`;
       return item;
     }));
   }
 
   elements.startButton.addEventListener("click", startMeal);
-  elements.biteButton.addEventListener("click", takeBite);
+  elements.biteButton.addEventListener("click", togglePacing);
   elements.finishButton.addEventListener("click", finishMeal);
   elements.cancelButton.addEventListener("click", cancelMeal);
   elements.settingsButton.addEventListener("click", openSettings);
@@ -274,7 +305,7 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
   });
 
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && session) requestWakeLock();
+    if (document.visibilityState === "visible" && session && !session.pausedAt) requestWakeLock();
   });
 
   if ("serviceWorker" in navigator) {
@@ -282,8 +313,12 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
   }
 
   if (session) {
+    if (!session.pausedAt) {
+      session.pausedAt = Date.now();
+      persistSession();
+    }
+    configurePacerAudio();
     showMeal();
-    requestWakeLock();
     updateMeal();
   } else {
     showHome();
