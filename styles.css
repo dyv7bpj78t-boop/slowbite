@@ -236,14 +236,16 @@ h1 { margin: 0; font-size: clamp(2rem, 9vw, 3rem); line-height: 1; letter-spacin
 .meal-view.camera-mode .progress-ring::after { inset: 8px; }
 .meal-view.camera-mode .timer { font-size: 1.62rem; letter-spacing: -.04em; }
 .meal-view.camera-mode .target-label { margin-top: 5px; font-size: .53rem; }
-.meal-view.camera-mode .pace-state { height: 58px; margin-top: 10px; }
+.meal-view.camera-mode .pace-state { min-height: 78px; height: auto; margin-top: 10px; }
 .meal-view.camera-mode .bite-button { min-height: 68px; }
 .camera-frame.bite-flash { animation: bite-flash .72s ease-out; }
 
-.pace-state { height: 76px; margin-top: clamp(22px, 4vh, 38px); text-align: center; }
+.pace-state { min-height: 88px; margin-top: clamp(22px, 4vh, 38px); text-align: center; }
 .pace-message { margin: 0; font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.phase-hint { margin: 6px 0 0; color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; }
 .status-ready { color: var(--green); }
 .status-wait { color: var(--muted); }
+.status-rest { color: var(--orange-bright); }
 
 .bite-button {
   min-height: 86px;
@@ -258,6 +260,11 @@ h1 { margin: 0; font-size: clamp(2rem, 9vw, 3rem); line-height: 1; letter-spacin
   color: #837d73;
   background: var(--panel-soft);
   box-shadow: none;
+}
+.meal-view.rest-mode .bite-button {
+  color: var(--orange-bright);
+  background: var(--panel-soft);
+  box-shadow: inset 0 0 0 1px rgba(255, 138, 31, .18);
 }
 .bite-button:disabled { opacity: 1; }
 .bite-icon { font-size: 1.5rem; }
@@ -278,7 +285,7 @@ h1 { margin: 0; font-size: clamp(2rem, 9vw, 3rem); line-height: 1; letter-spacin
 }
 .sheet::backdrop { background: rgba(0, 0, 0, .68); backdrop-filter: blur(8px); }
 .sheet[open] { animation: sheet-in .22s ease-out; }
-.sheet-content { padding: 22px; }
+.sheet-content { max-height: inherit; overflow-y: auto; padding: 22px; }
 .sheet-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .sheet-header h2 { margin: 0; letter-spacing: -.035em; }
 
@@ -293,6 +300,7 @@ h1 { margin: 0; font-size: clamp(2rem, 9vw, 3rem); line-height: 1; letter-spacin
 .setting-row > span { display: flex; flex-direction: column; gap: 5px; }
 .setting-row strong { font-size: .95rem; }
 .setting-row small { color: var(--muted); font-size: .78rem; }
+.setting-row.disabled { opacity: .48; }
 select { min-height: 42px; border: 1px solid var(--line); border-radius: 12px; padding: 0 9px; color: #f7f2e8; background: var(--panel-soft); }
 input[type="checkbox"] { width: 24px; height: 24px; accent-color: var(--orange); }
 .sheet-note { color: var(--muted); font-size: .8rem; line-height: 1.45; }

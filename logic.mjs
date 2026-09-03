@@ -20,3 +20,30 @@ export function averageInterval(bites) {
   }
   return total / (bites.length - 1);
 }
+
+export function pacingPhase(elapsedMs, eatingBlockMs, restMs) {
+  const elapsed = Math.max(0, elapsedMs);
+  if (eatingBlockMs <= 0 || restMs <= 0) {
+    return {
+      resting: false,
+      remainingMs: Infinity,
+      eatingElapsedMs: elapsed,
+      eatingInBlockMs: elapsed,
+      completedBlocks: 0
+    };
+  }
+
+  const cycleMs = eatingBlockMs + restMs;
+  const completedBlocks = Math.floor(elapsed / cycleMs);
+  const withinCycleMs = elapsed % cycleMs;
+  const resting = withinCycleMs >= eatingBlockMs;
+  const eatingInBlockMs = Math.min(withinCycleMs, eatingBlockMs);
+
+  return {
+    resting,
+    remainingMs: resting ? cycleMs - withinCycleMs : eatingBlockMs - withinCycleMs,
+    eatingElapsedMs: completedBlocks * eatingBlockMs + eatingInBlockMs,
+    eatingInBlockMs,
+    completedBlocks
+  };
+}

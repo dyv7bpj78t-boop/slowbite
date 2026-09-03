@@ -1,4 +1,4 @@
-const CACHE = "slowbite-v6-camera-experiment";
+const CACHE = "slowbite-v7-structured-rests";
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./app.js", "./camera.mjs", "./logic.mjs", "./manifest.webmanifest", "./icon.svg", "./ready-chime.mp3",
   "./pace-10.mp3", "./pace-15.mp3", "./pace-20.mp3", "./pace-25.mp3", "./pace-30.mp3", "./pace-35.mp3",
