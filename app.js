@@ -10,11 +10,10 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
   };
 
   const defaults = { mealMinutes: 20, biteSeconds: 30, soundEnabled: true };
+  const CHIME_AT_SECONDS = 60;
   let settings = readJSON(KEYS.settings, defaults);
   let session = readJSON(KEYS.session, null);
   let history = readJSON(KEYS.history, []);
-  let audioContext = null;
-  let audioKeepAlive = null;
   let wakeLock = null;
   let readySignalledForBite = session?.readySignalledForBite ?? 0;
   let targetSignalled = session?.targetSignalled ?? false;
@@ -27,6 +26,7 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     biteSeconds: $("biteSeconds"), soundEnabled: $("soundEnabled"),
     saveSettingsButton: $("saveSettingsButton"), historyButton: $("historyButton"),
     testChimeButton: $("testChimeButton"), audioStatus: $("audioStatus"),
+    readyChimeAudio: $("readyChimeAudio"),
     historyDialog: $("historyDialog"), historyList: $("historyList"),
     closeHistoryButton: $("closeHistoryButton"), clearHistoryButton: $("clearHistoryButton"),
     cancelButton: $("cancelButton"), finishButton: $("finishButton"),
@@ -47,53 +47,23 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     localStorage.setItem(key, JSON.stringify(value));
   }
 
-  function initializeAudio() {
-    if (!audioContext) {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (AudioContext) audioContext = new AudioContext();
-    }
-    if (!audioContext) return false;
-
-    if (audioContext.state === "suspended") audioContext.resume().catch(() => {});
-
-    // iOS may suspend an otherwise-idle AudioContext before the delayed cue.
-    // Starting an inaudible graph during the user's tap unlocks the output path
-    // and keeps the context active for the duration of the meal.
-    if (!audioKeepAlive) {
-      const oscillator = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-      oscillator.frequency.value = 1;
-      gain.gain.value = 0.00001;
-      oscillator.connect(gain).connect(audioContext.destination);
-      oscillator.start();
-      audioKeepAlive = oscillator;
-    }
-    return true;
+  function stopReadyChime() {
+    elements.readyChimeAudio.pause();
   }
 
-  function stopAudioKeepAlive() {
-    if (!audioKeepAlive) return;
-    try { audioKeepAlive.stop(); } catch { /* already stopped */ }
-    audioKeepAlive = null;
-  }
-
-  function chime(targetReached = false, delaySeconds = 0) {
-    if (!settings.soundEnabled || !audioContext || audioContext.state === "closed") return false;
-    const notes = targetReached ? [523.25, 659.25] : [659.25];
-    notes.forEach((frequency, index) => {
-      const start = audioContext.currentTime + Math.max(0.015, delaySeconds) + index * 0.13;
-      const oscillator = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(frequency, start);
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.22, start + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
-      oscillator.connect(gain).connect(audioContext.destination);
-      oscillator.start(start);
-      oscillator.stop(start + 0.23);
-    });
-    return true;
+  function playReadyChimeAfter(delayMs = 0) {
+    if (!settings.soundEnabled) return null;
+    const audio = elements.readyChimeAudio;
+    try {
+      audio.pause();
+      audio.currentTime = Math.max(0, CHIME_AT_SECONDS - delayMs / 1000);
+      // This begins real media playback inside the user's tap. The MP3 is silent
+      // until its 60-second mark, so the audible cue survives delayed-playback
+      // restrictions in iOS and other browsers.
+      return audio.play();
+    } catch {
+      return null;
+    }
   }
 
   async function requestWakeLock() {
@@ -120,7 +90,6 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
   }
 
   function startMeal() {
-    initializeAudio();
     const now = Date.now();
     session = {
       startedAt: now,
@@ -138,13 +107,16 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
 
   function takeBite() {
     if (!session) return;
-    initializeAudio();
     const now = Date.now();
     const lastBite = session.bites.at(-1);
     if (lastBite && now - lastBite < session.cooldownMs) return;
     session.bites.push(now);
-    const scheduled = chime(false, session.cooldownMs / 1000);
-    readySignalledForBite = scheduled ? session.bites.length : session.bites.length - 1;
+    const playback = playReadyChimeAfter(session.cooldownMs);
+    readySignalledForBite = playback ? session.bites.length : session.bites.length - 1;
+    playback?.catch(() => {
+      readySignalledForBite = Math.min(readySignalledForBite, session ? session.bites.length - 1 : 0);
+      persistSession();
+    });
     persistSession();
     updateMeal(now);
   }
@@ -164,7 +136,7 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     session = null;
     persistSession();
     releaseWakeLock();
-    stopAudioKeepAlive();
+    stopReadyChime();
     showHome();
   }
 
@@ -174,7 +146,7 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
     session = null;
     persistSession();
     releaseWakeLock();
-    stopAudioKeepAlive();
+    stopReadyChime();
     showHome();
   }
 
@@ -203,12 +175,11 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
 
     if (ready && session.bites.length > readySignalledForBite) {
       readySignalledForBite = session.bites.length;
-      chime(false);
+      playReadyChimeAfter(0)?.catch(() => {});
       persistSession();
     }
     if (elapsed >= session.targetMs && !targetSignalled) {
       targetSignalled = true;
-      chime(true);
       persistSession();
     }
   }
@@ -250,11 +221,17 @@ import { averageInterval, cooldownRemaining, formatClock, mealProgress } from ".
       elements.audioStatus.textContent = "Turn on Ready sound first.";
       return;
     }
-    const available = initializeAudio();
-    const played = available && chime(false);
-    elements.audioStatus.textContent = played
-      ? "Chime sent. If it is silent, raise your media volume."
-      : "Audio is unavailable in this browser.";
+    const playback = playReadyChimeAfter(0);
+    if (!playback) {
+      elements.audioStatus.textContent = "Audio is unavailable in this browser.";
+      return;
+    }
+    elements.audioStatus.textContent = "Playing the bundled MP3…";
+    playback.then(() => {
+      elements.audioStatus.textContent = "Chime played. If it is silent, raise your media volume.";
+    }).catch(() => {
+      elements.audioStatus.textContent = "Playback was blocked. Tap Test chime again.";
+    });
   }
 
   function renderHistory() {
