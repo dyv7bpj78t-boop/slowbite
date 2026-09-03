@@ -30,7 +30,7 @@
         <div class="home-copy">
           <p class="eyebrow">YOUR NEXT MEAL</p>
           <h1>Slow the loop down.</h1>
-          <p>Tap once after each bite. SlowBite tells you when to take the next one.</p>
+          <p>Start once. SlowBite rings automatically when it is time for your next bite.</p>
         </div>
         <button class="primary-button" id="startButton">
           <span>Start <strong id="startMinutes">20</strong>-minute meal</span>
@@ -54,16 +54,16 @@
         </div>
 
         <div class="pace-state" id="paceState">
-          <p class="eyebrow status-ready" id="paceLabel">READY</p>
-          <p class="pace-message" id="paceMessage">Take your first bite</p>
+          <p class="eyebrow status-ready" id="paceLabel">NEXT CHIME</p>
+          <p class="pace-message" id="paceMessage">30 seconds</p>
         </div>
 
         <button class="bite-button ready" id="biteButton">
-          <span class="bite-icon" aria-hidden="true">🍴</span>
-          <span id="biteButtonText">First bite</span>
+          <span class="bite-icon" id="biteIcon" aria-hidden="true">Ⅱ</span>
+          <span id="biteButtonText">Pause pacing</span>
           <span class="button-countdown" id="buttonCountdown"></span>
         </button>
-        <p class="bite-count">Bite <strong id="biteCount">0</strong></p>
+        <p class="bite-count"><span id="countLabel">Cue</span> <strong id="biteCount">1</strong></p>
       </section>
     </main>
 
@@ -89,7 +89,7 @@
         </label>
 
         <label class="setting-row" for="biteSeconds">
-          <span><strong>Between bites</strong><small>Minimum pause after each tap</small></span>
+          <span><strong>Chime interval</strong><small>Automatic pacing between bites</small></span>
           <select id="biteSeconds">
             <option value="10">10 sec</option>
             <option value="15">15 sec</option>
@@ -106,7 +106,7 @@
         </label>
 
         <label class="setting-row toggle-row" for="soundEnabled">
-          <span><strong>Ready sound</strong><small>A short chime when the wait ends</small></span>
+          <span><strong>Pacing sound</strong><small>A gentle bell at every interval</small></span>
           <input type="checkbox" id="soundEnabled" checked />
         </label>
 
@@ -129,6 +129,7 @@
       </div>
     </dialog>
 
+    <audio id="pacerAudio" preload="auto" playsinline loop></audio>
     <audio id="readyChimeAudio" src="./ready-chime.mp3" preload="auto" playsinline></audio>
     <script src="./app.js" type="module"></script>
   </body>
