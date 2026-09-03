@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#11100e" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="A private, distraction-free meal pacer." />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>SlowBite</title>
+  </head>
+  <body>
+    <main class="app-shell" aria-live="polite">
+      <header class="topbar">
+        <div class="brand" aria-label="SlowBite">
+          <span class="brand-mark" aria-hidden="true">S</span>
+          <span>SlowBite</span>
+        </div>
+        <button class="icon-button" id="settingsButton" aria-label="Open settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.96 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.08A1.7 1.7 0 0 0 4.6 8.96a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.96 4.6 1.7 1.7 0 0 0 10 3.08V3h4v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06a1.7 1.7 0 0 0-.34 1.88A1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+        </button>
+      </header>
+
+      <section id="homeView" class="view home-view">
+        <div class="hero-orbit" aria-hidden="true">
+          <div class="utensils">🍴</div>
+        </div>
+        <div class="home-copy">
+          <p class="eyebrow">YOUR NEXT MEAL</p>
+          <h1>Slow the loop down.</h1>
+          <p>Tap once after each bite. SlowBite tells you when to take the next one.</p>
+        </div>
+        <button class="primary-button" id="startButton">
+          <span>Start <strong id="startMinutes">20</strong>-minute meal</span>
+          <span aria-hidden="true">→</span>
+        </button>
+        <button class="text-button" id="historyButton">View recent meals</button>
+        <p class="privacy-note">Private by design · everything stays on this device</p>
+      </section>
+
+      <section id="mealView" class="view meal-view" hidden>
+        <div class="meal-actions">
+          <button class="text-button muted" id="cancelButton">Cancel</button>
+          <button class="text-button" id="finishButton">Finish</button>
+        </div>
+
+        <div class="progress-ring" id="progressRing" style="--progress: 0deg">
+          <div class="ring-inner">
+            <p class="timer" id="mealTimer">0:00</p>
+            <p class="target-label" id="targetLabel">OF 20:00</p>
+          </div>
+        </div>
+
+        <div class="pace-state" id="paceState">
+          <p class="eyebrow status-ready" id="paceLabel">READY</p>
+          <p class="pace-message" id="paceMessage">Take your first bite</p>
+        </div>
+
+        <button class="bite-button ready" id="biteButton">
+          <span class="bite-icon" aria-hidden="true">🍴</span>
+          <span id="biteButtonText">First bite</span>
+          <span class="button-countdown" id="buttonCountdown"></span>
+        </button>
+        <p class="bite-count">Bite <strong id="biteCount">0</strong></p>
+      </section>
+    </main>
+
+    <dialog id="settingsDialog" class="sheet">
+      <form method="dialog" class="sheet-content">
+        <div class="sheet-header">
+          <h2>Settings</h2>
+          <button class="icon-button" value="cancel" aria-label="Close settings">×</button>
+        </div>
+
+        <label class="setting-row" for="mealMinutes">
+          <span><strong>Meal target</strong><small>Aim for this total duration</small></span>
+          <select id="mealMinutes">
+            <option value="10">10 min</option>
+            <option value="15">15 min</option>
+            <option value="20">20 min</option>
+            <option value="25">25 min</option>
+            <option value="30">30 min</option>
+            <option value="35">35 min</option>
+            <option value="40">40 min</option>
+            <option value="45">45 min</option>
+          </select>
+        </label>
+
+        <label class="setting-row" for="biteSeconds">
+          <span><strong>Between bites</strong><small>Minimum pause after each tap</small></span>
+          <select id="biteSeconds">
+            <option value="10">10 sec</option>
+            <option value="15">15 sec</option>
+            <option value="20">20 sec</option>
+            <option value="25">25 sec</option>
+            <option value="30">30 sec</option>
+            <option value="35">35 sec</option>
+            <option value="40">40 sec</option>
+            <option value="45">45 sec</option>
+            <option value="50">50 sec</option>
+            <option value="55">55 sec</option>
+            <option value="60">60 sec</option>
+          </select>
+        </label>
+
+        <label class="setting-row toggle-row" for="soundEnabled">
+          <span><strong>Ready sound</strong><small>A short chime when the wait ends</small></span>
+          <input type="checkbox" id="soundEnabled" checked />
+        </label>
+
+        <p class="sheet-note">Changes apply to your next meal. The screen is kept awake where the browser allows it.</p>
+        <button class="primary-button compact" id="saveSettingsButton" value="default">Save settings</button>
+      </form>
+    </dialog>
+
+    <dialog id="historyDialog" class="sheet">
+      <div class="sheet-content history-sheet">
+        <div class="sheet-header">
+          <h2>Recent meals</h2>
+          <button class="icon-button" id="closeHistoryButton" aria-label="Close history">×</button>
+        </div>
+        <div id="historyList" class="history-list"></div>
+        <button class="text-button danger" id="clearHistoryButton">Clear history</button>
+      </div>
+    </dialog>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
