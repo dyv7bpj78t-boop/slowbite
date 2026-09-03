@@ -1,5 +1,9 @@
-const CACHE = "slowbite-v4-meditation-chime";
-const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./logic.mjs", "./manifest.webmanifest", "./icon.svg", "./ready-chime.mp3"];
+const CACHE = "slowbite-v5-automatic";
+const ASSETS = [
+  "./", "./index.html", "./styles.css", "./app.js", "./logic.mjs", "./manifest.webmanifest", "./icon.svg", "./ready-chime.mp3",
+  "./pace-10.mp3", "./pace-15.mp3", "./pace-20.mp3", "./pace-25.mp3", "./pace-30.mp3", "./pace-35.mp3",
+  "./pace-40.mp3", "./pace-45.mp3", "./pace-50.mp3", "./pace-55.mp3", "./pace-60.mp3"
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
