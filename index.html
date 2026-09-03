@@ -30,12 +30,13 @@
         <div class="home-copy">
           <p class="eyebrow">YOUR NEXT MEAL</p>
           <h1>Slow the loop down.</h1>
-          <p>Start once. SlowBite rings automatically when it is time for your next bite.</p>
+          <p id="homeDescription">Start once. SlowBite rings automatically when it is time for your next bite.</p>
         </div>
         <button class="primary-button" id="startButton">
           <span>Start <strong id="startMinutes">20</strong>-minute meal</span>
           <span aria-hidden="true">→</span>
         </button>
+        <p class="mode-note" id="modeNote">Automatic · bell every 30 seconds</p>
         <button class="text-button" id="historyButton">View recent meals</button>
         <p class="privacy-note">Private by design · everything stays on this device</p>
       </section>
@@ -51,6 +52,18 @@
             <p class="timer" id="mealTimer">0:00</p>
             <p class="target-label" id="targetLabel">OF 20:00</p>
           </div>
+        </div>
+
+        <div class="camera-panel" id="cameraPanel" hidden>
+          <div class="camera-frame" id="cameraFrame">
+            <video id="cameraVideo" autoplay muted playsinline></video>
+            <canvas id="cameraOverlay"></canvas>
+            <div class="camera-badge">
+              <span class="camera-indicator" id="cameraIndicator" data-state="loading"></span>
+              <span id="cameraStatus">Preparing detector…</span>
+            </div>
+          </div>
+          <p class="camera-help">Prop the phone upright with your face and eating hand visible. Frames stay on this device.</p>
         </div>
 
         <div class="pace-state" id="paceState">
@@ -105,6 +118,14 @@
           </select>
         </label>
 
+        <label class="setting-row" for="pacingMode">
+          <span><strong>Pacing mode</strong><small>Camera mode is experimental</small></span>
+          <select id="pacingMode">
+            <option value="automatic">Automatic timer</option>
+            <option value="camera">Camera experiment</option>
+          </select>
+        </label>
+
         <label class="setting-row toggle-row" for="soundEnabled">
           <span><strong>Pacing sound</strong><small>A gentle bell at every interval</small></span>
           <input type="checkbox" id="soundEnabled" checked />
@@ -129,6 +150,7 @@
       </div>
     </dialog>
 
+    <audio id="cameraPacerAudio" src="./camera-pacer.mp3" preload="metadata" playsinline></audio>
     <audio id="pacerAudio" preload="auto" playsinline loop></audio>
     <audio id="readyChimeAudio" src="./ready-chime.mp3" preload="auto" playsinline></audio>
     <script src="./app.js" type="module"></script>
