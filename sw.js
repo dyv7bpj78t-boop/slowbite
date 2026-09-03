@@ -1,5 +1,5 @@
-const CACHE = "slowbite-v2-audio";
-const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./logic.mjs", "./manifest.webmanifest", "./icon.svg"];
+const CACHE = "slowbite-v3-mp3";
+const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./logic.mjs", "./manifest.webmanifest", "./icon.svg", "./ready-chime.mp3"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
