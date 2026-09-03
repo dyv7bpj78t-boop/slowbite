@@ -63,6 +63,7 @@
               <span id="cameraStatus">Preparing detector…</span>
             </div>
           </div>
+          <button type="button" class="camera-enable" id="cameraEnableButton" hidden>Retry camera</button>
           <p class="camera-help">Prop the phone upright with your face and eating hand visible. Frames stay on this device.</p>
         </div>
 
@@ -103,7 +104,7 @@
         </label>
 
         <label class="setting-row" for="biteSeconds">
-          <span><strong>Chime interval</strong><small>Automatic pacing between bites</small></span>
+          <span><strong>Bite interval</strong><small>Automatic chime or camera warning threshold</small></span>
           <select id="biteSeconds">
             <option value="10">10 sec</option>
             <option value="15">15 sec</option>
@@ -149,7 +150,7 @@
         </label>
 
         <label class="setting-row toggle-row" for="soundEnabled">
-          <span><strong>Pacing sound</strong><small>A gentle bell at every interval</small></span>
+          <span><strong>Pacing sound</strong><small>Bells and the camera warning buzz</small></span>
           <input type="checkbox" id="soundEnabled" checked />
         </label>
 
@@ -173,6 +174,7 @@
     </dialog>
 
     <audio id="cameraPacerAudio" src="./camera-pacer.mp3" preload="metadata" playsinline></audio>
+    <audio id="warningBuzzAudio" src="./camera-warning.mp3" preload="metadata" playsinline></audio>
     <audio id="pacerAudio" preload="auto" playsinline loop></audio>
     <audio id="readyChimeAudio" src="./ready-chime.mp3" preload="auto" playsinline></audio>
     <script src="./app.js" type="module"></script>

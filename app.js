@@ -1,4 +1,5 @@
-import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
+import { averageInterval, formatClock, isBiteTooFast, pacingPhase } from "./logic.mjs";
+import { CameraBiteTracker } from "./camera.mjs";
 
 (() => {
   "use strict";
@@ -55,6 +56,7 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
     soundEnabled: $("soundEnabled"), saveSettingsButton: $("saveSettingsButton"),
     historyButton: $("historyButton"), testChimeButton: $("testChimeButton"), audioStatus: $("audioStatus"),
     readyChimeAudio: $("readyChimeAudio"), pacerAudio: $("pacerAudio"), cameraPacerAudio: $("cameraPacerAudio"),
+    warningBuzzAudio: $("warningBuzzAudio"), cameraEnableButton: $("cameraEnableButton"),
     historyDialog: $("historyDialog"), historyList: $("historyList"),
     closeHistoryButton: $("closeHistoryButton"), clearHistoryButton: $("clearHistoryButton"),
     cancelButton: $("cancelButton"), finishButton: $("finishButton"),
@@ -107,6 +109,10 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
     setAudioSource(elements.cameraPacerAudio, "./camera-pacer.mp3", false);
   }
 
+  function configureWarningAudio() {
+    setAudioSource(elements.warningBuzzAudio, "./camera-warning.mp3", false);
+  }
+
   function playAutomaticPacer(elapsedMs = 0) {
     if (!settings.soundEnabled) return null;
     configureAutomaticAudio();
@@ -132,19 +138,36 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
     else audio.addEventListener("loadedmetadata", seek, { once: true });
   }
 
-  function playCameraPacer(remainingMs) {
-    if (!settings.soundEnabled) return null;
+  function primeCameraAudio() {
+    if (!settings.soundEnabled) return;
     configureCameraAudio();
-    seekCameraChime(remainingMs);
-    try { return elements.cameraPacerAudio.play(); }
-    catch { return null; }
+    configureWarningAudio();
+    seekCameraChime(0);
+    try { elements.cameraPacerAudio.play().catch(() => {}); } catch { /* unavailable */ }
+    try {
+      elements.warningBuzzAudio.currentTime = 0;
+      elements.warningBuzzAudio.play().catch(() => {});
+    } catch { /* unavailable */ }
   }
 
-  function resetCameraChime() {
-    if (!settings.soundEnabled || !session || session.pausedAt || currentPhase().resting) return;
+  function resumeCameraAudio() {
+    if (!settings.soundEnabled) return;
     configureCameraAudio();
-    seekCameraChime(session.cooldownMs);
-    if (elements.cameraPacerAudio.paused) elements.cameraPacerAudio.play().catch(() => {});
+    configureWarningAudio();
+    if (elements.cameraPacerAudio.ended) elements.cameraPacerAudio.currentTime = CAMERA_CHIME_AT_SECONDS + 5;
+    if (elements.warningBuzzAudio.ended) elements.warningBuzzAudio.currentTime = 0;
+    elements.cameraPacerAudio.play().catch(() => {});
+    elements.warningBuzzAudio.play().catch(() => {});
+  }
+
+  function playWarningBuzz() {
+    navigator.vibrate?.([100, 70, 100]);
+    if (!settings.soundEnabled) return;
+    configureWarningAudio();
+    try {
+      elements.warningBuzzAudio.currentTime = CAMERA_CHIME_AT_SECONDS;
+      if (elements.warningBuzzAudio.paused) elements.warningBuzzAudio.play().catch(() => {});
+    } catch { /* unavailable */ }
   }
 
   function stopAudio() {
@@ -152,6 +175,7 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
     restBellStopTimer = null;
     elements.pacerAudio.pause();
     elements.cameraPacerAudio.pause();
+    elements.warningBuzzAudio.pause();
     elements.readyChimeAudio.pause();
   }
 
@@ -257,10 +281,9 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
   async function startCameraVision() {
     if (!session || session.mode !== "camera" || cameraTracker) return;
     const generation = ++cameraGeneration;
+    elements.cameraEnableButton.hidden = true;
     setCameraStatus("Preparing detector…", "loading");
     try {
-      const { CameraBiteTracker } = await import("./camera.mjs");
-      if (generation !== cameraGeneration || !session || session.mode !== "camera") return;
       const tracker = new CameraBiteTracker({
         video: elements.cameraVideo,
         canvas: elements.cameraOverlay,
@@ -275,10 +298,15 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
         return;
       }
       tracker.setPaused(Boolean(session.pausedAt));
-    } catch {
+    } catch (error) {
       if (generation === cameraGeneration) {
         cameraTracker = null;
-        setCameraStatus("Camera unavailable—use Automatic mode", "error");
+        elements.cameraEnableButton.hidden = false;
+        const denied = error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError";
+        setCameraStatus(
+          denied ? "Camera blocked—allow it in browser settings" : "Camera unavailable—tap Retry camera",
+          "error"
+        );
       }
     }
   }
@@ -295,13 +323,19 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
     const elapsed = activeElapsed(now);
     if (currentPhase(elapsed).resting) return;
     if (session.lastBiteElapsedMs != null && elapsed - session.lastBiteElapsedMs < 2000) return;
+    const previousBite = session.lastBiteElapsedMs;
+    const tooFast = isBiteTooFast(previousBite, elapsed, session.cooldownMs);
     session.detectedBites = (session.detectedBites || 0) + 1;
+    if (tooFast) {
+      session.fastBites = (session.fastBites || 0) + 1;
+      session.lastFastBiteAtElapsed = elapsed;
+      playWarningBuzz();
+    }
     session.lastBiteElapsedMs = elapsed;
-    session.nextChimeAtElapsed = elapsed + session.cooldownMs;
     persistSession();
-    resetCameraChime();
-    elements.cameraFrame.classList.add("bite-flash");
-    setTimeout(() => elements.cameraFrame.classList.remove("bite-flash"), 450);
+    const flashClass = tooFast ? "too-fast-flash" : "bite-flash";
+    elements.cameraFrame.classList.add(flashClass);
+    setTimeout(() => elements.cameraFrame.classList.remove(flashClass), 650);
     updateMeal(now);
   }
 
@@ -318,6 +352,7 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
       totalPausedMs: 0,
       pausedAt: null,
       detectedBites: 0,
+      fastBites: 0,
       nextChimeAtElapsed: settings.biteSeconds * 1000
     };
     scheduledPhase = null;
@@ -326,8 +361,8 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
     requestWakeLock();
     updateMeal(now);
     if (mode === "camera") {
-      playCameraPacer(session.cooldownMs)?.catch(pauseAfterPlaybackFailure);
       startCameraVision();
+      primeCameraAudio();
     } else {
       playAutomaticPacer(0)?.catch(pauseAfterPlaybackFailure);
     }
@@ -349,8 +384,7 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
         cameraTracker?.setPaused(true);
         if (session.mode === "camera") setCameraStatus("Fork-down pause—tracking stopped", "paused");
       } else if (session.mode === "camera") {
-        const remaining = Math.max(0, session.nextChimeAtElapsed - activeElapsed(now));
-        playCameraPacer(remaining)?.catch(pauseAfterPlaybackFailure);
+        resumeCameraAudio();
         if (cameraTracker) cameraTracker.setPaused(false);
         else startCameraVision();
       } else {
@@ -362,6 +396,7 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
       restBellStopTimer = null;
       if (session.mode === "camera") {
         elements.cameraPacerAudio.pause();
+        elements.warningBuzzAudio.pause();
         cameraTracker?.setPaused(true);
       } else {
         elements.pacerAudio.pause();
@@ -387,7 +422,8 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
       targetMs: session.targetMs,
       intervalMs: session.cooldownMs,
       cues: automatic ? automaticCueCount(phase) : undefined,
-      detectedBites: automatic ? undefined : (session.detectedBites || 0)
+      detectedBites: automatic ? undefined : (session.detectedBites || 0),
+      fastBites: automatic ? undefined : (session.fastBites || 0)
     });
     history = history.slice(0, 100);
     writeJSON(KEYS.history, history);
@@ -444,14 +480,20 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
       elements.countLabel.textContent = cameraMode ? "Detected" : "Cue";
       elements.biteCount.textContent = cameraMode ? (session.detectedBites || 0) : automaticCueCount(phase);
     } else if (cameraMode) {
-      const remaining = Math.max(0, session.nextChimeAtElapsed - elapsed);
-      const ready = remaining <= 0;
-      elements.paceLabel.textContent = ready ? "READY" : "WAIT";
-      elements.paceLabel.className = "eyebrow status-ready";
-      elements.paceMessage.textContent = ready ? "Take your next bite" : `${Math.ceil(remaining / 1000)} seconds`;
-      elements.phaseHint.textContent = Number.isFinite(phase.remainingMs) ? `Fork-down pause in ${formatClock(phase.remainingMs)}` : "Long pauses are off";
+      const sinceLastBite = session.lastBiteElapsedMs == null ? Infinity : elapsed - session.lastBiteElapsedMs;
+      const slowWindowRemaining = Math.max(0, session.cooldownMs - sinceLastBite);
+      const justWarned = session.lastFastBiteAtElapsed != null && elapsed - session.lastFastBiteAtElapsed < 1800;
+      elements.paceLabel.textContent = justWarned ? "TOO FAST" : slowWindowRemaining > 0 ? "SLOW WINDOW" : "PACE OK";
+      elements.paceLabel.className = `eyebrow ${justWarned ? "status-warning" : "status-ready"}`;
+      elements.paceMessage.textContent = justWarned
+        ? `Wait ${Math.ceil(slowWindowRemaining / 1000)} seconds`
+        : slowWindowRemaining > 0
+          ? `${Math.ceil(slowWindowRemaining / 1000)} seconds until the next bite`
+          : "Take a bite when you are ready";
+      const restText = Number.isFinite(phase.remainingMs) ? `Pause in ${formatClock(phase.remainingMs)}` : "Long pauses off";
+      elements.phaseHint.textContent = `${session.fastBites || 0} fast · ${restText}`;
       elements.biteButtonText.textContent = "Pause camera";
-      elements.countLabel.textContent = "Detected";
+      elements.countLabel.textContent = "Bites";
       elements.biteCount.textContent = session.detectedBites || 0;
     } else {
       const remaining = session.cooldownMs - (phase.eatingInBlockMs % session.cooldownMs);
@@ -490,13 +532,13 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
     elements.settingsButton.hidden = false;
     elements.startMinutes.textContent = settings.mealMinutes;
     elements.homeDescription.textContent = cameraMode
-      ? "The camera watches for hand-to-mouth gestures and restarts the wait automatically."
+      ? "The camera stays quiet at a good pace and gives a short buzz only when bites are too close together."
       : "SlowBite spaces out each bite and builds real fork-down pauses into the meal.";
     const restSummary = settings.breakEveryMinutes > 0
       ? `${settings.restSeconds}s pause every ${settings.breakEveryMinutes}m`
       : "no long pauses";
     elements.modeNote.textContent = cameraMode
-      ? `Experimental camera · ${restSummary}`
+      ? `Camera warning at <${settings.biteSeconds}s · ${restSummary}`
       : `Every ${settings.biteSeconds}s · ${restSummary}`;
   }
 
@@ -569,6 +611,8 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
       const camera = meal.mode === "camera";
       const average = automatic || camera ? meal.intervalMs : averageInterval(meal.bites || []);
       const count = camera ? meal.detectedBites : automatic ? meal.cues : (meal.bites || []).length;
+      const thirdValue = camera ? (meal.fastBites || 0) : average ? `${Math.round(average / 1000)} sec` : "—";
+      const thirdLabel = camera ? "Too fast" : automatic ? "Interval" : "Average";
       const duration = meal.durationMs ?? (meal.endedAt - meal.startedAt);
       const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(meal.startedAt);
       item.innerHTML = `
@@ -576,7 +620,7 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
         <div class="history-metrics">
           <div class="history-metric"><strong>${formatClock(duration)}</strong><span>Duration</span></div>
           <div class="history-metric"><strong>${count}</strong><span>${camera ? "Detected" : automatic ? "Cues" : "Bites"}</span></div>
-          <div class="history-metric"><strong>${average ? `${Math.round(average / 1000)} sec` : "—"}</strong><span>${automatic || camera ? "Interval" : "Average"}</span></div>
+          <div class="history-metric"><strong>${thirdValue}</strong><span>${thirdLabel}</span></div>
         </div>`;
       return item;
     }));
@@ -590,6 +634,10 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
   elements.saveSettingsButton.addEventListener("click", saveSettings);
   elements.testChimeButton.addEventListener("click", testChime);
   elements.breakEveryMinutes.addEventListener("change", syncRestControls);
+  elements.cameraEnableButton.addEventListener("click", () => {
+    stopCameraVision();
+    startCameraVision();
+  });
   elements.historyButton.addEventListener("click", () => { renderHistory(); elements.historyDialog.showModal(); });
   elements.closeHistoryButton.addEventListener("click", () => elements.historyDialog.close());
   elements.clearHistoryButton.addEventListener("click", () => {
@@ -614,6 +662,7 @@ import { averageInterval, formatClock, pacingPhase } from "./logic.mjs";
     }
     if (session.mode === "camera") {
       configureCameraAudio();
+      configureWarningAudio();
       setCameraStatus("Tap Resume to restart the camera", "paused");
     } else {
       configureAutomaticAudio();

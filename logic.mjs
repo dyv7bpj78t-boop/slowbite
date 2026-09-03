@@ -47,3 +47,7 @@ export function pacingPhase(elapsedMs, eatingBlockMs, restMs) {
     completedBlocks
   };
 }
+
+export function isBiteTooFast(previousBiteMs, currentBiteMs, minimumIntervalMs) {
+  return previousBiteMs != null && currentBiteMs - previousBiteMs < minimumIntervalMs;
+}
