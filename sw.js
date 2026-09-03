@@ -1,4 +1,4 @@
-const CACHE = "slowbite-v3-mp3";
+const CACHE = "slowbite-v4-meditation-chime";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./logic.mjs", "./manifest.webmanifest", "./icon.svg", "./ready-chime.mp3"];
 
 self.addEventListener("install", (event) => {
